@@ -2,69 +2,38 @@ from torch.utils.data import Dataset, DataLoader
 import os
 import numpy as np
 from PIL import Image
-
-
-import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
 from transformers import AutoFeatureExtractor, AutoModel
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from sklearn.decomposition import PCA
+from ratmoseq_extract.io import load_movie_data
 
 class FeatureExtractionDataset(Dataset):
-    def __init__(self, file_paths, n_samples_per_file=10, seed=None):
+    def __init__(self, file_path, seed=None):
         """Dataset for feature extraction with random sampling
         
         Args:
-            file_paths: List of paths to .npy files, where each file contains
-                frames of shape (n_frames, height, width)
+            file_paths: List of paths to video files
             n_samples_per_file: Number of frames to sample from each file
             seed: Random seed for reproducibility
+            threads: Number of threads for video loading
+            fps: Frames per second for video loading
         """
         self.file_paths = file_paths
         self.n_samples_per_file = n_samples_per_file
         self.rng = np.random.default_rng(seed)
         
-        # Pre-sample file indices and frame indices
-        self.sampled_indices = []
-        for file_idx in range(len(file_paths)):
-            # Load the file to get number of frames
-            frames = np.load(file_paths[file_idx])
-            n_frames = len(frames)
-            
-            # Sample frame indices for this file
-            frame_indices = self.rng.choice(n_frames, 
-                                          size=min(n_samples_per_file, n_frames),
-                                          replace=False)
-            
-            # Store (file_idx, frame_idx) pairs
-            self.sampled_indices.extend([(file_idx, frame_idx) for frame_idx in frame_indices])
+        # Load the video
+        self.frames = load_movie_data(
+            self.file_path
+        )
         
     def __len__(self):
-        return len(self.sampled_indices)
+        return len(self.frames)
         
     def __getitem__(self, idx):
-        file_idx, frame_idx = self.sampled_indices[idx]
-        
-        # Load the specific frame from the file
-        frames = np.load(self.file_paths[file_idx])
-        frame = frames[frame_idx]
-        
-        # Convert to RGB if grayscale (duplicate to 3 channels)
-        if len(frame.shape) == 2:
-            frame = np.stack([frame, frame, frame], axis=2)
-        elif frame.shape[2] == 1:
-            frame = np.concatenate([frame, frame, frame], axis=2)
-        
-        # Ensure uint8 format for images (0-255)
-        if frame.dtype != np.uint8:
-            if frame.max() <= 1.0:
-                frame = (frame * 255).astype(np.uint8)
-            else:
-                frame = frame.astype(np.uint8)
-                
-        return frame, file_idx
+        return self.frames[idx]
 
 class BalancedVideoSampler:
     def __init__(self, 
